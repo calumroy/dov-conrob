@@ -17,6 +17,9 @@ def len2(x,y):
   return x**2+y**2
 
 class Robot:
+  """The robot model is more general than is needed for this
+  assignment. But it is probably useful for further assignments
+  in the course and should be put in a separate library"""
   def __init__(self,
                axis_length,
                wheel_radius,
@@ -111,19 +114,22 @@ class Robot:
     
   def step(self,
            dt):
+    """Take a timestep and draw the new pose"""
     dx = self.v * cos(self.phi) * dt
     dy = self.v * sin(self.phi) * dt
     self.x += dx
     self.y += dy
     self.phi += self.w * dt
     self.path += [(self.x,self.y)]
-    self.draw_robot()
     self.time+=dt
+    self.draw_robot()
 
   def get_pos(self):
+    """Return the current robot direction"""
     return (self.x,self.y,self.phi)
     
   def set_direction(self,phi):
+    """Set a new direction of our robot"""
     self.phi = phi
 
 # Create the viewer window
@@ -135,7 +141,6 @@ viewer = Euv.Viewer(size=(600,600),
 # Create the robot
 wheel_radius = 0.1
 wheel_apart = 0.2
-wheel_circumference = 2*pi * wheel_radius
 init = (0,0)
 goal = (0,1)
 robot = Robot(wheel_apart,wheel_radius,
@@ -147,17 +152,27 @@ robot = Robot(wheel_apart,wheel_radius,
 dt = 0.1
 
 robot.set_pose(0,0,0, 0.1, 0)
-robot.step(dt)
 steps_num = 0
 epsilon = 1e-3
+
+# Loop until we reach the goal or we reach 400 steps.
 while steps_num < 400:
   x,y,phi = robot.get_pos()
   if len2(x-goal[0],y-goal[1]) < epsilon:
     break
   robot.step(dt)
+
+  # The direction to the goal
   dir_to_goal = atan2(goal[1]-y,goal[0]-x)
+
+  # Our current error in direction
   error = dir_to_goal - phi
-  correction = 0.05*error
+
+  # Correction strength
+  Kp = 0.05
+  correction = Kp*error
+
+  # Set the new direction
   robot.set_direction(phi + correction)
   steps_num+=1
 
