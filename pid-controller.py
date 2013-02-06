@@ -16,6 +16,9 @@ import time
 def len2(x,y):
   return x**2+y**2
 
+def normalize_angle(theta):
+  return atan2(sin(theta),cos(theta))
+
 class Robot:
   """The robot model is more general than is needed for this
   assignment. But it is probably useful for further assignments
@@ -155,8 +158,8 @@ robot.set_pose(0,0,0, 0.1, 0)
 steps_num = 0
 epsilon = 1e-3
 
-# Loop until we reach the goal or we reach 400 steps.
-while steps_num < 400:
+# Loop until we reach the goal or we reach 1000 steps.
+while steps_num < 1000:
   x,y,phi = robot.get_pos()
   if len2(x-goal[0],y-goal[1]) < epsilon:
     break
@@ -166,10 +169,10 @@ while steps_num < 400:
   dir_to_goal = atan2(goal[1]-y,goal[0]-x)
 
   # Our current error in direction
-  error = dir_to_goal - phi
+  error = normalize_angle(dir_to_goal - phi)
 
   # Correction strength
-  Kp = 0.05
+  Kp = 0.02
   correction = Kp*error
 
   # Set the new direction
