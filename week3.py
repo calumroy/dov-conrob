@@ -1,6 +1,13 @@
 #!/usr/bin/python
 # -*- Encoding: utf-8 -*
-# Python implementation of the Week 2 exercise.
+#
+# This weeks euv robot contains the following enhancements:
+#
+#   * Created a baseclass Controller that defines a
+#     behavior prototype, like in simiam.
+#   * Created a GoToGoal controller that moves to a goal.
+#   * Used pylab to plot a graph of the assymptotic angle
+#   * Introduced multi goals to make robot take a more complex path.
 #
 # Dov Grobgeld <dov.grobgeld@gmail.com>
 # 2013-02-05 Tue
@@ -11,6 +18,7 @@ import Euv.EuvGtk as Euv
 import Euv.Color as Color
 import Euv.Shapes as Shapes
 import time
+import pylab
 
 # Constants for encoder arrays
 LEFT = 0
@@ -66,6 +74,72 @@ class WheelEncoder:
   def get_ticks_per_rev(self):
     return self.ticks_per_rev
 
+# Define controllers.
+#
+# As python does not enforce an interface relationship between
+# a baseclass and a derived class, we will just create the
+# classes to have the interface. This is known as duck-typing.
+# If it looks like a duck and quacks like a duck...
+#
+# A controller only needs to implement the function
+#
+#   execute(self, robot, state_estimate, inputs)
+#
+# that returns outputs.
+#
+class ControllerGoToGoal:
+  """A controller taking as input (x_g, y_g, v) and returns (v,w)"""
+  def __init__(self, kp = 10, kd = 0, ki = 0, d_stop = 0.02):
+    self.kp = kp
+    self.kd = kd
+    self.ki = ki
+    self.sum_e_k = 0
+    self.prev_e_k = None
+    self.phi_g = 0
+
+    # Square distance from goal where to stop
+    self.epsilon2 = d_stop**2
+
+  def get_dir_to_goal(self):
+    """Return the last measured direction to the goal"""
+    return self.phi_g
+
+  def get_e_k(self):
+    """Return the last error"""
+    return self.prev_e_k
+
+  def execute(self, robot, state_estimate, inputs, dt):
+    (x_g,y_g,v) = inputs
+    (x,y,phi) = state_estimate
+
+    # Direction to goal
+    dx = x_g-x
+    dy = y_g-y
+    phi_g = atan2(dy,dx)
+    self.phi_g = phi_g
+
+    # heading error
+    e_k = normalize_angle(phi_g-phi)
+            
+    # Zero out prev_ek for first time
+    if self.prev_e_k==None:
+      self.prev_e_k = e_k
+
+    # PID for heading
+    w = self.kp*e_k + self.ki*(self.sum_e_k+e_k*dt) + self.kd*(e_k-self.prev_e_k)/dt
+    
+    # save errors
+    self.sum_e_k += e_k*dt
+    self.prev_e_k = e_k
+
+    # stop when sufficiently close
+    delta = len2(dx,dy)
+
+    if delta < self.epsilon2:
+      return (0,0)
+
+    return (v,w)
+  
 class Robot:
   """The robot model contains two differential wheels"""
   def __init__(self,
@@ -73,7 +147,7 @@ class Robot:
                wheel_radius,
                viewer=None,
                init=None,
-               goal=None,
+               goals=None,
                ticks_per_rev = 50,
                initial_state = State(0,0,0)   # Estimated state of robot
                ):
@@ -83,7 +157,7 @@ class Robot:
     self.path = []
     self.time = 0
     self.init = init
-    self.goal = goal
+    self.goals = goals
     self.state = initial_state
     self.left_encoder = WheelEncoder(wheel_radius,axis_length,ticks_per_rev)
     self.right_encoder = WheelEncoder(wheel_radius,axis_length,ticks_per_rev)
@@ -125,22 +199,25 @@ class Robot:
   def draw_robot(self, draw_path=True, text_info=''):
     """Create a new frame and draw a representation of the robot in it"""
     x,y,phi = self.state.get_pose()
-    phi_d = self.get_dir_to_goal()
     if self.viewer:
       f = Frame.Frame()
+
       if draw_path:
-        f.add_lines(color=Color.Color("black"),
+        f.add_lines(color='black',
+                    alpha=0.5,
                     lines=[self.path[:]],
-                    linewidth=0.01)
+                    linewidth=0.02)
       
       # Draw start and goal
-      for p,color in ( (self.init, "green"),
-                       (self.goal, "blue") ):
-        if p:
-          f.add_circle(p,
-                       color=color,
-                       alpha=0.5,
-                       radius=0.05)
+      f.add_circle(self.init,
+                   color='green',
+                   alpha=0.5,
+                   radius=0.05)
+      for g in self.goals:
+        f.add_circle(g,
+                     color='blue',
+                     alpha=0.5,
+                     radius=0.05)
 
       # Our robot representation is built of an arrow head
       # with two wheels.
@@ -213,20 +290,23 @@ class Robot:
     and direction of the differential wheels"""    
     return self.state.get_pose()
 
+  def get_time(self):
+    return self.time
+
   def get_v_and_w(self):
     return self.diff_to_uni(self.velocity_left,
                             self.velocity_right)
-
-  def reached_goal(self):
+  def get_dir_to_goal(self, goal_index):
+    x,y,phi = self.get_pose()
+    return atan2(self.goals[goal_index][1]-y,self.goals[goal_index][0]-x)
+    
+  def reached_goal(self, goal_index):
     """Returns true if we have reached the goal"""
     x,y,phi = self.state.get_pose()
     epsilon = 0.02**2
-    return len2(x-self.goal[0],y-self.goal[1]) < epsilon
+    return len2(x-self.goals[goal_index][0],y-self.goals[goal_index][1]) < epsilon
 
-  def get_dir_to_goal(self):
-    x,y,phi = self.get_pose()
-    return atan2(self.goal[1]-y,self.goal[0]-x)
-    
+
 # Create the viewer window
 viewer = Euv.Viewer(size=(600,600),
                     view_port_center = (0,0),
@@ -238,58 +318,76 @@ viewer = Euv.Viewer(size=(600,600),
 wheel_radius = 0.1
 wheel_apart = 0.2
 init = (0,0)
-goal = (0,1)
+goals = [(0.7,0.7),(0.7,-0.2),(-0.5,0),(-0.7, 0.7),(0,0)]
 robot = Robot(wheel_apart,
               wheel_radius,
               viewer=viewer,
               init=init,
-              goal=goal) 
+              goals=goals) 
 
 # Set the initial position of the robot
 robot.set_pose(0.,0.,0)
-velocity = 1
+velocity = 0.1
 vel_l, vel_r = robot.uni_to_diff(velocity, 0)
 robot.set_wheel_speeds(vel_l,vel_r)
 
 # Do PID loop
-dt = 0.1
+dt = 1.0
 
 steps_num = 0
 epsilon = 1e-3
 
+# Create our controller
+go_to_goal = ControllerGoToGoal(kp=0.5)
+
 # Loop until we reach the goal or we reach 400 steps.
-while steps_num < 400:
-  x,y,phi = robot.get_pose()
-  v,w = robot.get_v_and_w()
+plot_t = []
+plot_phi = []
+plot_phi_g = []
 
-  # The direction to the goal
-  phi_d = robot.get_dir_to_goal()
+w = 0
 
-  # Our current error in direction
-  e_k = normalize_angle(phi_d - phi)
-
-  # Correction strength
-  Kp = 5
-  new_w = Kp*e_k
-
-  # Update the angular speed but not the velocity
-  vel_l, vel_r = robot.uni_to_diff(velocity, new_w)
-
-  # Set the new direction
+# Have the robot change its goal along this path
+for i,goal in enumerate(goals):
+  vel_l, vel_r = robot.uni_to_diff(velocity, w)
   robot.set_wheel_speeds(vel_l,vel_r)
-  steps_num+=1
-  robot.draw_robot(text_info= (
-                   u"φ=%.2f\n"
-                   u"φ_d=%.2f\n"
-                   'e_k=%.3f\n'
-                   u'ω =%.3f\n'
-                   'vel_l=%.3f\n'
-                   'vel_r=%.3f'
-                   %(phi,phi_d,e_k,new_w,vel_l,vel_r)))
+  while steps_num < 800:
+    (v,w) = robot.get_v_and_w()
+    (v,w) = go_to_goal.execute(robot, robot.get_pose(), (goal[0],goal[1],v), dt)
+  
+    # Update the angular speed but not the velocity
+    vel_l, vel_r = robot.uni_to_diff(v, w)
+  
+    # Set the new direction
+    robot.set_wheel_speeds(vel_l,vel_r)
+    (x,y,phi) = robot.get_pose()
+  
+    # Get textual info to display
+    phi_g = go_to_goal.get_dir_to_goal()
+    e_k = go_to_goal.get_e_k()
+    robot.draw_robot(text_info= (
+                     u"φ=%.2f\n"
+                     u"φ_g=%.2f\n"
+                     'e_k=%.3f\n'
+                     u'ω =%.3f\n'
+                     'v = %.3f\n'
+                     'vel_l=%.3f\n'
+                     'vel_r=%.3f'
+                     %(phi,phi_g,e_k,w,v,vel_l,vel_r)))
+  
+    steps_num+=1
+    if robot.reached_goal(i):
+      break
+    robot.step(dt)
+  
+    # Accumulate info to plot
+    plot_t += [robot.get_time()]
+    plot_phi += [normalize_angle(phi)]
+    plot_phi_g += [normalize_angle(phi_g)]
 
-  if robot.reached_goal():
-    break
-  robot.step(dt)
+pylab.plot(plot_t,plot_phi,label=u'φ' )
+pylab.plot(plot_t,plot_phi_g,label=u'φ_g')
+pylab.legend(loc=4)
+pylab.title('Robot angle')
+pylab.show()
 
-
-viewer.wait()
