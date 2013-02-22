@@ -30,7 +30,6 @@ M.setSphere(1000,0.01)
 M.mass = 1.0
 ball.setMass(M)
 ball.setPosition((0,1,0))
-ball.addForce( (20,9,0) )
 
 # And a rod without any weight
 rod = ode.Body(world)
@@ -40,7 +39,7 @@ M.mass = 1e-3
 rod.setMass(M)
 rod.setPosition((0,0.5,0))
 
-# Connect the rod with the world through a Hinge joint
+# Connect the rod with the world through a Hinge joint.
 world_joint = ode.HingeJoint(world)
 world_joint.attach(rod, ode.environment)
 world_joint.setAnchor( (0,0,0) )
@@ -59,20 +58,32 @@ viewer = Euv.Viewer(size=(600,600),
                     )
 
 # Do the simulation
+
 total_time = 0.0
 dt = 0.02
-prev_angle = 0
-while total_time<15:
+Kf = 0.5 # Friction force
+while total_time<30:
+
+    # push the ball after half a second!
+    if total_time >= 0.5 and total_time < 0.5+dt:
+      ball.addRelForce( (-20,0,0) )
+    elif total_time >= 0.5+dt and total_time < 0.5*2*dt:
+      ball.addRelForce( (20,0,0) )
+
+
     angle = world_joint.getAngle()
+    angle_rate_of_change = world_joint.getAngleRate()
+
+    # Friction
+    friction_force = -angle_rate_of_change * Kf
 
     # Control the pendulum by applying a torque at the world
     # pendulum joint.
-    
+
     # Try with different PD parameters to explore stability of the Pendulum!
-    Kp = 0
-    Kd = 0
-    angle_rate_of_change = normalize_angle(angle - prev_angle)/dt
-    torque = -angle * Kp - angle_rate_of_change * Kd
+    Kp = 5
+    Kd = 5
+    torque = -angle * Kp - angle_rate_of_change * Kd + friction_force
 
     # Here is the control feedback
     world_joint.addTorque(torque)
@@ -112,6 +123,5 @@ while total_time<15:
     # Step the world
     world.step(dt)
     total_time+=dt
-    prev_angle = angle
     
 viewer.wait()
