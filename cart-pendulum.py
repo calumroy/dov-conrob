@@ -129,7 +129,7 @@ def build_world():
   rod = ode.Body(world)
   M = ode.Mass()
   M.setCylinder(0.01, 2, 0.01,rod_length)
-  M.mass = 1e-3
+  M.mass = 1e-2
   rod.setMass(M)
   rod.setPosition((0,0.5,0))
   
@@ -149,7 +149,7 @@ def build_world():
   rod_ball_joint.attach(rod, ball)
   rod_ball_joint.setFixed()
 
-  return world,cart,ball,rod,pendulum_joint
+  return world,cart,ball,rod,pendulum_joint, cart_joint,rod_ball_joint
 
 # Create the viewer window
 viewer = Euv.Viewer(size=(600,600),
@@ -175,7 +175,7 @@ K = calc_control_parameters(M = cart_mass,
                             I = ball_mass * rod_length**2)
 
 # Build the world and do the simulation
-world,cart,ball,rod,pendulum_joint = build_world()
+world,cart,ball,rod,pendulum_joint,cart_joint,rod_ball_joint = build_world()
 total_time = 0.0
 while total_time<max_time:
   message = ''
